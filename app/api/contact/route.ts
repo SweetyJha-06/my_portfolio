@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -28,6 +26,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Input too long." }, { status: 400 });
     }
 
+    const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
       from: "Portfolio Contact <onboarding@resend.dev>",
       to: "jhasweety2609@gmail.com",
