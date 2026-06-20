@@ -13,43 +13,48 @@ interface LeetCodeData {
   totalActiveDays: number;
 }
 
-// Real values from profile — used when API is unreachable
-const FALLBACK: LeetCodeData = {
-  totalSolved: 278,
-  easySolved: 86,
-  mediumSolved: 157,
-  hardSolved: 35,
-  ranking: 520939,
-  streak: 109,
-  totalActiveDays: 190,
-};
+const QUERY = `
+query getUserStats($username: String!) {
+  matchedUser(username: $username) {
+    profile { ranking }
+    submitStatsGlobal {
+      acSubmissionNum { difficulty count }
+    }
+    userCalendar { streak totalActiveDays }
+  }
+}`;
 
-async function getLeetCodeStats(): Promise<LeetCodeData> {
+async function getLeetCodeStats(): Promise<LeetCodeData | null> {
   try {
-    // Use absolute URL for server component (required in Next.js)
-    const baseUrl =
-      process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000";
+    const res = await fetch("https://leetcode.com/graphql/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Referer": "https://leetcode.com",
+      },
+      body: JSON.stringify({ query: QUERY, variables: { username: personalInfo.leetcodeUsername } }),
+      next: { revalidate: 3600 },
+    });
 
-    const res = await fetch(
-      `${baseUrl}/api/leetcode?username=${personalInfo.leetcodeUsername}`,
-      { next: { revalidate: 3600 } }
-    );
-    if (!res.ok) return FALLBACK;
-    const data = await res.json();
-    if (data.error) return FALLBACK;
+    if (!res.ok) return null;
+    const json = await res.json();
+    const user = json?.data?.matchedUser;
+    if (!user) return null;
+
+    const ac = user.submitStatsGlobal?.acSubmissionNum ?? [];
+    const get = (d: string) => ac.find((x: { difficulty: string; count: number }) => x.difficulty === d)?.count ?? 0;
+
     return {
-      totalSolved: data.totalSolved ?? FALLBACK.totalSolved,
-      easySolved: data.easySolved ?? FALLBACK.easySolved,
-      mediumSolved: data.mediumSolved ?? FALLBACK.mediumSolved,
-      hardSolved: data.hardSolved ?? FALLBACK.hardSolved,
-      ranking: data.ranking ?? FALLBACK.ranking,
-      streak: data.streak ?? FALLBACK.streak,
-      totalActiveDays: data.totalActiveDays ?? FALLBACK.totalActiveDays,
+      totalSolved: get("All"),
+      easySolved: get("Easy"),
+      mediumSolved: get("Medium"),
+      hardSolved: get("Hard"),
+      ranking: user.profile?.ranking ?? 0,
+      streak: user.userCalendar?.streak ?? 0,
+      totalActiveDays: user.userCalendar?.totalActiveDays ?? 0,
     };
   } catch {
-    return FALLBACK;
+    return null;
   }
 }
 
@@ -108,54 +113,66 @@ export async function Dashboard() {
             </a>
           </div>
 
-          {/* Top stat cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              icon={Trophy}
-              label="Total Solved"
-              value={s.totalSolved.toString()}
-              sub={`Easy ${s.easySolved} · Med ${s.mediumSolved} · Hard ${s.hardSolved}`}
-            />
-            <StatCard
-              icon={Flame}
-              label="Current Streak"
-              value={`${s.streak}d`}
-              sub="Max streak achieved"
-              color="text-orange-400"
-            />
-            <StatCard
-              icon={Calendar}
-              label="Active Days"
-              value={s.totalActiveDays.toString()}
-              sub="Days with a submission"
-              color="text-blue-400"
-            />
-          </div>
+          {s ? (
+            <>
+              {/* Top stat cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <StatCard
+                  icon={Trophy}
+                  label="Total Solved"
+                  value={s.totalSolved.toString()}
+                  sub={`Easy ${s.easySolved} · Med ${s.mediumSolved} · Hard ${s.hardSolved}`}
+                />
+                <StatCard
+                  icon={Flame}
+                  label="Current Streak"
+                  value={`${s.streak}d`}
+                  sub="Max streak achieved"
+                  color="text-orange-400"
+                />
+                <StatCard
+                  icon={Calendar}
+                  label="Active Days"
+                  value={s.totalActiveDays.toString()}
+                  sub="Days with a submission"
+                  color="text-blue-400"
+                />
+              </div>
 
-          {/* Difficulty breakdown bar */}
-          <div className="mt-4 card-glass rounded-xl p-5">
-            <p className="text-xs text-muted-foreground font-mono mb-4">Difficulty Breakdown</p>
-            <div className="space-y-3">
-              {[
-                { label: "Easy", value: s.easySolved, total: s.totalSolved, color: "bg-green-400", textColor: "text-green-400" },
-                { label: "Medium", value: s.mediumSolved, total: s.totalSolved, color: "bg-yellow-400", textColor: "text-yellow-400" },
-                { label: "Hard", value: s.hardSolved, total: s.totalSolved, color: "bg-red-400", textColor: "text-red-400" },
-              ].map(({ label, value, total, color, textColor }) => (
-                <div key={label} className="flex items-center gap-3">
-                  <span className={`text-xs font-mono w-14 ${textColor}`}>{label}</span>
-                  <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${color} rounded-full`}
-                      style={{ width: total > 0 ? `${(value / total) * 100}%` : "0%" }}
-                    />
-                  </div>
-                  <span className="text-xs font-mono text-muted-foreground w-8 text-right">
-                    {value}
-                  </span>
+              {/* Difficulty breakdown bar */}
+              <div className="mt-4 card-glass rounded-xl p-5">
+                <p className="text-xs text-muted-foreground font-mono mb-4">Difficulty Breakdown</p>
+                <div className="space-y-3">
+                  {[
+                    { label: "Easy", value: s.easySolved, total: s.totalSolved, color: "bg-green-400", textColor: "text-green-400" },
+                    { label: "Medium", value: s.mediumSolved, total: s.totalSolved, color: "bg-yellow-400", textColor: "text-yellow-400" },
+                    { label: "Hard", value: s.hardSolved, total: s.totalSolved, color: "bg-red-400", textColor: "text-red-400" },
+                  ].map(({ label, value, total, color, textColor }) => (
+                    <div key={label} className="flex items-center gap-3">
+                      <span className={`text-xs font-mono w-14 ${textColor}`}>{label}</span>
+                      <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${color} rounded-full`}
+                          style={{ width: total > 0 ? `${(value / total) * 100}%` : "0%" }}
+                        />
+                      </div>
+                      <span className="text-xs font-mono text-muted-foreground w-8 text-right">
+                        {value}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+            </>
+          ) : (
+            <div className="card-glass rounded-xl p-8 text-center text-muted-foreground font-mono text-sm">
+              Stats unavailable — visit{" "}
+              <a href={personalInfo.leetcode} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">
+                LeetCode profile
+              </a>{" "}
+              directly.
             </div>
-          </div>
+          )}
         </AnimatedSection>
       </div>
     </section>
